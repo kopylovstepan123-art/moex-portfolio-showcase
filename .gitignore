@@ -1,0 +1,7 @@
+.portfolio-state.json
+.portfolio-state.json.tmp
+portfolio-private.json
+.wrangler/
+.dev.vars*
+.env
+.env.*

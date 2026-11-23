@@ -1,0 +1,91 @@
+name: Доступ к Telegram-боту
+
+on:
+  schedule:
+    # UTC. Commands are checked during the Moscow trading windows.
+    - cron: '7,37 4-20 * * 1-5'
+    - cron: '7,37 7-15 * * 0,6'
+  workflow_dispatch:
+    inputs:
+      initialize_access:
+        description: Создать зашифрованный список гостей при первом запуске
+        type: boolean
+        default: false
+      send_admin:
+        description: Отправить владельцу меню и действующий пароль
+        type: boolean
+        default: false
+      send_analysis:
+        description: Отправить владельцу проверочный технический обзор
+        type: boolean
+        default: false
+      telegram_update:
+        description: Зашифрованная команда Telegram
+        type: string
+      webhook_url:
+        description: HTTPS-адрес Cloudflare Worker для Telegram
+        type: string
+      disable_webhook:
+        description: Отключить webhook и вернуть опрос Telegram
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: moex-telegram-access
+  queue: max
+
+jobs:
+  access:
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'schedule' || (vars.ENABLE_TELEGRAM_SCHEDULE == 'true' && vars.TELEGRAM_WEBHOOK_ENABLED != 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - name: Загрузить сценарий
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Восстановить график и календарь
+        if: inputs.initialize_access != true && inputs.send_admin != true && !inputs.webhook_url && inputs.disable_webhook != true
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .portfolio-state.json
+          key: moex-portfolio-access-${{ github.run_id }}
+          restore-keys: moex-portfolio-v1-
+      - name: Проверить команды Telegram
+        env:
+          PORTFOLIO_JSON: ${{ secrets.PORTFOLIO_JSON }}
+          BOND_COSTS_JSON: ${{ secrets.BOND_COSTS_JSON }}
+          STOCK_COSTS_JSON: ${{ secrets.STOCK_COSTS_JSON }}
+          RUB_CASH_JSON: ${{ secrets.RUB_CASH_JSON }}
+          TBANK_MARKET_TOKEN: ${{ secrets.TBANK_MARKET_TOKEN }}
+          TBANK_MARKET_CA: ${{ secrets.TBANK_MARKET_CA }}
+          TBANK_PORTFOLIO_ACCOUNT: ${{ secrets.TBANK_PORTFOLIO_ACCOUNT }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_ACCESS_KEY: ${{ secrets.TELEGRAM_ACCESS_KEY }}
+          BOT_ACCESS_GITHUB_TOKEN: ${{ github.token }}
+          INITIALIZE_ACCESS: ${{ inputs.initialize_access }}
+          SEND_ADMIN: ${{ inputs.send_admin }}
+          SEND_ANALYSIS: ${{ inputs.send_analysis }}
+          TELEGRAM_WEBHOOK_UPDATE: ${{ inputs.telegram_update }}
+          TELEGRAM_WEBHOOK_URL: ${{ inputs.webhook_url }}
+          DISABLE_WEBHOOK: ${{ inputs.disable_webhook }}
+          TELEGRAM_BRIDGE_KEY: ${{ secrets.TELEGRAM_BRIDGE_KEY }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+        run: |
+          if [ -n "$TELEGRAM_WEBHOOK_URL" ] || [ "$DISABLE_WEBHOOK" = "true" ]; then
+            node portfolio.mjs --configure-webhook
+          elif [ "$INITIALIZE_ACCESS" = "true" ]; then
+            node portfolio.mjs --initialize-access
+          elif [ "$SEND_ADMIN" = "true" ]; then
+            node portfolio.mjs --send-admin
+          elif [ "$SEND_ANALYSIS" = "true" ]; then
+            node portfolio.mjs --send-analysis
+          else
+            node portfolio.mjs --poll-bot
+          fi

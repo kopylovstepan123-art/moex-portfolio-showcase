@@ -1,0 +1,99 @@
+name: Обзор портфеля
+
+on:
+  schedule:
+    - cron: '19 7-19/3 * * 1-5'
+      timezone: 'Europe/Moscow'
+    - cron: '19 22 * * 1-5'
+      timezone: 'Europe/Moscow'
+    - cron: '19 10-13/3 * * 0,6'
+      timezone: 'Europe/Moscow'
+    - cron: '19 16 * * 0,6'
+      timezone: 'Europe/Moscow'
+  workflow_dispatch:
+    inputs:
+      send_telegram:
+        description: Отправить проверочный отчёт в Telegram
+        type: boolean
+        default: false
+      audit_bot:
+        description: Проверить настройки Telegram без отправки сообщений
+        type: boolean
+        default: false
+      audit_access:
+        description: Проверить имена аккаунтов с доступом к отчётам
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: moex-portfolio
+  cancel-in-progress: false
+
+jobs:
+  report:
+    if: github.event_name != 'schedule' || vars.ENABLE_TELEGRAM_SCHEDULE == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Загрузить сценарий
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Восстановить прошлый снимок
+        if: inputs.audit_bot != true && inputs.audit_access != true
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .portfolio-state.json
+          key: moex-portfolio-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: moex-portfolio-v1-
+
+      - name: Собрать отчёт
+        if: inputs.audit_bot != true && inputs.audit_access != true
+        id: report
+        env:
+          PORTFOLIO_JSON: ${{ secrets.PORTFOLIO_JSON }}
+          BOND_COSTS_JSON: ${{ secrets.BOND_COSTS_JSON }}
+          STOCK_COSTS_JSON: ${{ secrets.STOCK_COSTS_JSON }}
+          RUB_CASH_JSON: ${{ secrets.RUB_CASH_JSON }}
+          TBANK_MARKET_TOKEN: ${{ secrets.TBANK_MARKET_TOKEN }}
+          TBANK_MARKET_CA: ${{ secrets.TBANK_MARKET_CA }}
+          TBANK_PORTFOLIO_ACCOUNT: ${{ secrets.TBANK_PORTFOLIO_ACCOUNT }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_ACCESS_KEY: ${{ secrets.TELEGRAM_ACCESS_KEY }}
+          BOT_ACCESS_GITHUB_TOKEN: ${{ github.token }}
+          SEND_TELEGRAM: ${{ github.event_name == 'schedule' || inputs.send_telegram }}
+          SEND_DAILY_GUESTS: ${{ github.event_name == 'schedule' && (github.event.schedule == '19 22 * * 1-5' || github.event.schedule == '19 16 * * 0,6') }}
+        run: |
+          if [ "$SEND_TELEGRAM" = "true" ]; then
+            node portfolio.mjs --send
+          else
+            node portfolio.mjs
+          fi
+
+      - name: Проверить настройки Telegram
+        if: inputs.audit_bot == true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node portfolio.mjs --audit-bot
+
+      - name: Проверить аккаунты с доступом
+        if: inputs.audit_access == true && github.ref == 'refs/heads/main'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_ACCESS_KEY: ${{ secrets.TELEGRAM_ACCESS_KEY }}
+          BOT_ACCESS_GITHUB_TOKEN: ${{ github.token }}
+        run: node portfolio.mjs --audit-access
+
+      - name: Сохранить снимок и отправленные уведомления
+        if: always() && steps.report.outputs.state_written == 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .portfolio-state.json
+          key: moex-portfolio-v1-${{ github.run_id }}-${{ github.run_attempt }}

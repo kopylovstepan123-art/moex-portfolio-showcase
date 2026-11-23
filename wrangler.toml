@@ -1,0 +1,5 @@
+name = "moex-portfolio-telegram"
+main = "webhook-worker.mjs"
+compatibility_date = "2026-11-21"
+workers_dev = true
+preview_urls = false

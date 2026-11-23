@@ -1,0 +1,9 @@
+{
+  "stocks": [
+    { "ticker": "LKOH", "quantity": 3, "cost": 18000 },
+    { "ticker": "YDEX", "quantity": 8, "cost": 32000 }
+  ],
+  "bonds": [
+    { "isin": "RU000A100A82", "name": "ОФЗ 26228", "board": "TQOB", "quantity": 15, "cost": 13500 }
+  ]
+}
